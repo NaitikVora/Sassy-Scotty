@@ -1,0 +1,46 @@
+# Global ignores for Sassy-Scotty monorepo
+
+# macOS system files
+.DS_Store
+
+# Node modules and build output
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment files
+.env
+.env.*
+
+# Test & coverage output
+coverage/
+playwright-report/
+test-results/
+
+# Editor & IDE files
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Misc
+*.local
+
+# Ignore output from Vite, Next.js, etc.
+dist-ssr/
+
+# Ignore public assets generated at build time
+public/build/

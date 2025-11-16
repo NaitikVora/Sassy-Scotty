@@ -1,0 +1,124 @@
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.kanban__column {
+  border-radius: 24px;
+  padding: 18px;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid rgb(15 23 42 / 0.08);
+}
+
+.kanban__column-header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+  color: #475569;
+}
+
+.kanban__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kanban__empty {
+  font-size: 13px;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.assignment-card {
+  border-radius: 20px;
+  padding: 16px;
+  background: #fff;
+  box-shadow: 0 15px 35px rgb(15 23 42 / 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assignment-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.assignment-card__tag {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 10px;
+  color: #fb7185;
+  margin: 0;
+}
+
+.assignment-card h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.assignment-card__course {
+  font-size: 13px;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.assignment-card__due {
+  font-size: 12px;
+  font-weight: 600;
+  color: #dc2626;
+}
+
+.assignment-card__link {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.assignment-card__link:hover {
+  text-decoration: underline;
+}
+
+.status-pill {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.status-pill--pending {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.status-pill--danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.status-pill--done {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.empty-board {
+  padding: 32px;
+  border-radius: 24px;
+  background: #f1f5f9;
+  color: #475569;
+  text-align: center;
+  font-weight: 600;
+}

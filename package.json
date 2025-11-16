@@ -1,0 +1,12 @@
+{
+  "name": "vibemaxxing",
+  "private": true,
+  "scripts": {
+    "server:dev": "npm run dev:http --prefix mcp-server",
+    "server:start": "npm run start:http --prefix mcp-server",
+    "server:dev:mock": "PORT=3001 CORS_ORIGIN=http://localhost:5173 MOCK_SIO=true npm run dev:http --prefix mcp-server"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.17"
+  }
+}
