@@ -1,5 +1,3 @@
-# vibemaxxing @CMU
-
 ## Quick Start
 
 From the repo root you can now launch the Canvas API bridge without manually `cd`ing:
