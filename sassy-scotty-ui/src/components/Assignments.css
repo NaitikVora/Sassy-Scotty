@@ -12,7 +12,8 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  border: 1px solid rgb(15 23 42 / 0.08);
+  border: 1px solid var(--color-border);
+  transition: background-color 0.3s ease;
 }
 
 .kanban__column-header {
@@ -22,7 +23,7 @@
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-size: 11px;
-  color: #475569;
+  color: var(--color-text-secondary);
 }
 
 .kanban__stack {
@@ -33,18 +34,19 @@
 
 .kanban__empty {
   font-size: 13px;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   margin: 0;
 }
 
 .assignment-card {
   border-radius: 20px;
   padding: 16px;
-  background: #fff;
-  box-shadow: 0 15px 35px rgb(15 23 42 / 0.08);
+  background: var(--color-card-background);
+  box-shadow: 0 15px 35px var(--color-shadow);
   display: flex;
   flex-direction: column;
   gap: 8px;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .assignment-card__top {
@@ -57,31 +59,32 @@
   text-transform: uppercase;
   letter-spacing: 0.2em;
   font-size: 10px;
-  color: #fb7185;
+  color: var(--color-primary);
   margin: 0;
 }
 
 .assignment-card h4 {
   margin: 0;
   font-size: 16px;
+  color: var(--color-text-primary);
 }
 
 .assignment-card__course {
   font-size: 13px;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   margin: 0;
 }
 
 .assignment-card__due {
   font-size: 12px;
   font-weight: 600;
-  color: #dc2626;
+  color: var(--color-danger);
 }
 
 .assignment-card__link {
   margin-top: 6px;
   font-size: 12px;
-  color: #2563eb;
+  color: var(--color-info);
   text-decoration: none;
   font-weight: 600;
 }
@@ -100,25 +103,28 @@
 }
 
 .status-pill--pending {
-  background: #fef3c7;
-  color: #b45309;
+  background: var(--color-warning);
+  color: var(--color-card-background);
+  opacity: 0.9;
 }
 
 .status-pill--danger {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--color-danger);
+  color: var(--color-card-background);
+  opacity: 0.9;
 }
 
 .status-pill--done {
-  background: #dcfce7;
-  color: #15803d;
+  background: var(--color-success);
+  color: var(--color-card-background);
+  opacity: 0.9;
 }
 
 .empty-board {
   padding: 32px;
   border-radius: 24px;
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--color-background-secondary);
+  color: var(--color-text-secondary);
   text-align: center;
   font-weight: 600;
 }

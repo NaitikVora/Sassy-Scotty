@@ -1,0 +1,229 @@
+.mood-selector {
+  position: relative;
+}
+
+.mood-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--color-card-background, #ffffff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  box-shadow: 0 1px 3px var(--color-shadow, rgba(0, 0, 0, 0.1));
+}
+
+.mood-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--color-shadow, rgba(0, 0, 0, 0.15));
+  border-color: var(--color-primary, #8b5cf6);
+}
+
+.mood-emoji {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.mood-label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.mood-label-text {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.mood-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary, #1f2937);
+  white-space: nowrap;
+}
+
+.mood-arrow {
+  font-size: 10px;
+  color: var(--color-text-muted, #9ca3af);
+  margin-left: 4px;
+}
+
+.mood-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+}
+
+.mood-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 480px;
+  max-width: 90vw;
+  max-height: 600px;
+  overflow-y: auto;
+  background: var(--color-card-background, #ffffff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px var(--color-shadow, rgba(0, 0, 0, 0.2));
+  z-index: 1000;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mood-dropdown-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.mood-dropdown-header h3 {
+  margin: 0 0 4px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1f2937);
+}
+
+.mood-dropdown-header p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.mood-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 16px;
+}
+
+.mood-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--color-background-secondary, #f9fafb);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  font-family: inherit;
+}
+
+.mood-option:hover {
+  border-color: var(--color-primary, #8b5cf6);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--color-shadow, rgba(0, 0, 0, 0.1));
+}
+
+.mood-option.active {
+  border-color: var(--color-primary, #8b5cf6);
+  background: var(--color-background, #ffffff);
+}
+
+.mood-option-preview {
+  width: 100%;
+  height: 60px;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.preview-bg {
+  width: 100%;
+  height: 100%;
+  background: var(--preview-bg);
+  padding: 8px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.preview-card {
+  width: 40%;
+  height: 100%;
+  background: var(--preview-card);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.preview-accent {
+  width: 20%;
+  height: 60%;
+  background: var(--preview-primary);
+  border-radius: 4px;
+}
+
+.mood-option-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mood-option-emoji {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.mood-option-info strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1f2937);
+  margin-bottom: 2px;
+}
+
+.mood-option-info p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.mood-option-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  background: var(--color-primary, #8b5cf6);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+@media (max-width: 640px) {
+  .mood-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mood-dropdown {
+    width: 100%;
+    left: 0;
+    right: 0;
+  }
+}

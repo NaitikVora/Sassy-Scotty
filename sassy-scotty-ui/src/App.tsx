@@ -1,8 +1,12 @@
 import './App.css';
 import Assignments from './components/Assignments';
+import CreateTaskModal from './components/CreateTaskModal';
+import MoodSelector from './components/MoodSelector';
 import { mockAssignments, mockFocusBlocks, mockScheduleEvents, vibeCoach } from './data/mockData';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { KanbanStage } from './types/task';
+import type { KanbanStage, Task } from './types/task';
+import { getCurrentSprint, getAvailableSprints, getSprint, isDateInSprint, type Sprint } from './utils/sprintUtils';
+import { applyTheme, getStoredTheme, type Theme } from './utils/themes';
 
 interface StageConfig {
   id: KanbanStage;
@@ -61,20 +65,91 @@ const selfCareIdeas = [
   'Schedule a 20-minute stretch & reset before bed'
 ];
 
+// Get or create user ID
+function getUserId(): string {
+  let userId = localStorage.getItem('userId');
+  if (!userId) {
+    userId = `user_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    localStorage.setItem('userId', userId);
+  }
+  return userId;
+}
+
+const API_BASE = 'http://localhost:3001';
+
 function App() {
   const [activeFilter, setActiveFilter] = useState(filters[0]);
   const [tasks, setTasks] = useState(mockAssignments);
+  const [customTasks, setCustomTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [usingMock, setUsingMock] = useState(true);
   const [lastSync, setLastSync] = useState<string>('demo mode');
   const [apiUrl, setApiUrl] = useState(INITIAL_API_URL);
   const [apiInfo, setApiInfo] = useState<string | null>(INITIAL_API_NOTE ?? null);
+  const [selectedSprint, setSelectedSprint] = useState<Sprint>(getCurrentSprint());
+  const [availableSprints] = useState<Sprint[]>(getAvailableSprints());
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState<Theme>(getStoredTheme());
   const apiUrlRef = useRef(INITIAL_API_URL);
+  const userId = useRef(getUserId()).current;
 
+  // Apply theme on mount and when theme changes
+  useEffect(() => {
+    applyTheme(currentTheme);
+  }, [currentTheme]);
+
+  // Load user data on mount
   useEffect(() => {
     apiUrlRef.current = apiUrl;
+    loadUserData();
   }, []);
+
+  // Save user data whenever tasks or custom tasks change
+  useEffect(() => {
+    if (!loading) {
+      saveUserData();
+    }
+  }, [tasks, customTasks]);
+
+  const loadUserData = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/user/${userId}/data`);
+      if (response.ok) {
+        const data = await response.json();
+        setCustomTasks(data.customTasks || []);
+      }
+    } catch (error) {
+      console.error('Failed to load user data:', error);
+    }
+  }, [userId]);
+
+  const saveUserData = useCallback(async () => {
+    try {
+      // Prepare kanban state
+      const kanbanState = [...tasks, ...customTasks].reduce((acc, task) => {
+        acc[task.id.toString()] = task.kanbanStage || 'brain_dump';
+        return acc;
+      }, {} as Record<string, KanbanStage>);
+
+      const data = {
+        customTasks,
+        kanbanState,
+        settings: {
+          selectedSprint: selectedSprint.number,
+        },
+      };
+
+      await fetch(`${API_BASE}/api/user/${userId}/data`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+    } catch (error) {
+      console.error('Failed to save user data:', error);
+    }
+  }, [userId, tasks, customTasks, selectedSprint]);
 
   const fetchAssignments = useCallback(async () => {
     setLoading(true);
@@ -97,7 +172,24 @@ function App() {
             ? data.assignments
             : [];
 
-        setTasks(fetchedTasks);
+        // Restore kanban state from backend
+        let kanbanState: Record<string, KanbanStage> = {};
+        try {
+          const userDataResponse = await fetch(`${API_BASE}/api/user/${userId}/data`);
+          if (userDataResponse.ok) {
+            const userData = await userDataResponse.json();
+            kanbanState = userData.kanbanState || {};
+          }
+        } catch (err) {
+          console.error('Failed to load kanban state:', err);
+        }
+
+        const tasksWithState = fetchedTasks.map((task: Task) => ({
+          ...task,
+          kanbanStage: kanbanState[task.id.toString()] || task.kanbanStage || 'brain_dump',
+        }));
+
+        setTasks(tasksWithState);
         setUsingMock(false);
         if (apiUrlRef.current !== url) {
           apiUrlRef.current = url;
@@ -127,32 +219,81 @@ function App() {
     setLastSync('demo mode');
     setApiInfo('Serving mock data until the Canvas gateway is reachable.');
     setLoading(false);
-  }, [apiUrl]);
+  }, [apiUrl, userId]);
 
   useEffect(() => {
     fetchAssignments();
   }, [fetchAssignments]);
 
+  const handleTaskMove = useCallback((taskId: string | number, newStage: KanbanStage) => {
+    setTasks((prevTasks) =>
+      prevTasks.map((task) =>
+        task.id === taskId || task.id.toString() === taskId.toString()
+          ? { ...task, kanbanStage: newStage }
+          : task
+      )
+    );
+    setCustomTasks((prevTasks) =>
+      prevTasks.map((task) =>
+        task.id === taskId || task.id.toString() === taskId.toString()
+          ? { ...task, kanbanStage: newStage }
+          : task
+      )
+    );
+  }, []);
+
+  const handleCreateTask = useCallback((taskData: Omit<Task, 'id'>) => {
+    const newTask: Task = {
+      ...taskData,
+      id: `custom-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+    };
+    setCustomTasks((prev) => [...prev, newTask]);
+  }, []);
+
+  const handleDeleteTask = useCallback((taskId: string | number) => {
+    setCustomTasks((prev) => prev.filter((task) => task.id !== taskId));
+  }, []);
+
+  // Combine Canvas tasks and custom tasks
+  const allTasks = useMemo(() => [...tasks, ...customTasks], [tasks, customTasks]);
+
+  // Filter by sprint (only show tasks within current sprint date range)
+  const sprintFilteredTasks = useMemo(() => {
+    return allTasks.filter((task) => {
+      // If task has no due date, include it (user can manually manage)
+      if (!task.dueAt) return true;
+
+      // Check if task due date falls within selected sprint
+      return isDateInSprint(task.dueAt, selectedSprint);
+    });
+  }, [allTasks, selectedSprint]);
+
   const filteredTasks = useMemo(() => {
+    const tasksToFilter = sprintFilteredTasks.filter((task) => task.kanbanStage !== 'done');
+
     switch (activeFilter) {
       case 'projects':
-        return tasks.filter((task) => task.tag === 'project' || task.type === 'assignment');
+        return tasksToFilter.filter((task) => task.tag === 'project' || task.type === 'assignment');
       case 'exams':
-        return tasks.filter((task) => task.tag === 'exam' || task.type === 'exam');
+        return tasksToFilter.filter((task) => task.tag === 'exam' || task.type === 'exam');
       case 'studio':
-        return tasks.filter((task) => task.tag === 'studio');
+        return tasksToFilter.filter((task) => task.tag === 'studio');
       default:
-        return tasks;
+        return tasksToFilter;
     }
-  }, [activeFilter, tasks]);
+  }, [activeFilter, sprintFilteredTasks]);
 
-  const urgentTasks = useMemo(() => tasks.filter((task) => task.kanbanStage === 'kinda_urgent'), [tasks]);
+  const completedTasks = useMemo(() => {
+    return sprintFilteredTasks.filter((task) => task.kanbanStage === 'done');
+  }, [sprintFilteredTasks]);
+
+  const urgentTasks = useMemo(() => sprintFilteredTasks.filter((task) => task.kanbanStage === 'kinda_urgent'), [sprintFilteredTasks]);
   const hotList = useMemo(() => urgentTasks.slice(0, 3), [urgentTasks]);
   const dueTodayCount = useMemo(() => {
     const today = new Date().toDateString();
-    return tasks.filter((task) => task.dueAt && new Date(task.dueAt).toDateString() === today).length;
-  }, [tasks]);
-  const inProgressCount = useMemo(() => tasks.filter((task) => task.kanbanStage === 'in_progress').length, [tasks]);
+    return sprintFilteredTasks.filter((task) => task.dueAt && new Date(task.dueAt).toDateString() === today).length;
+  }, [sprintFilteredTasks]);
+  const inProgressCount = useMemo(() => sprintFilteredTasks.filter((task) => task.kanbanStage === 'in_progress').length, [sprintFilteredTasks]);
 
   const stats = [
     { label: 'due today', value: dueTodayCount },
@@ -176,6 +317,7 @@ function App() {
           </div>
         </div>
         <div className="hero__actions">
+          <MoodSelector currentTheme={currentTheme} onThemeChange={setCurrentTheme} />
           <div className="hero__meta">
             <span>{heroStatusLabel}</span>
             <strong>{heroStatusValue}</strong>
@@ -272,18 +414,52 @@ function App() {
                 <p>today&apos;s mission</p>
                 <h2>assignments & vibes</h2>
               </div>
-              <div className="filter-bar">
-                {filters.map((filter) => (
-                  <button
-                    key={filter}
-                    className={filter === activeFilter ? 'chip active' : 'chip'}
-                    onClick={() => setActiveFilter(filter)}
-                  >
-                    {filter}
-                  </button>
-                ))}
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div className="filter-bar">
+                  {filters.map((filter) => (
+                    <button
+                      key={filter}
+                      className={filter === activeFilter ? 'chip active' : 'chip'}
+                      onClick={() => setActiveFilter(filter)}
+                    >
+                      {filter}
+                    </button>
+                  ))}
+                </div>
+                <button className="primary-btn" onClick={() => setIsCreateModalOpen(true)}>
+                  + new task
+                </button>
               </div>
             </header>
+
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb', background: '#fafafa' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <label style={{ fontSize: '13px', fontWeight: 500, color: '#6b7280' }}>
+                  Sprint:
+                </label>
+                <select
+                  value={selectedSprint.number}
+                  onChange={(e) => setSelectedSprint(getSprint(Number(e.target.value)))}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #d1d5db',
+                    fontSize: '14px',
+                    background: 'white',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {availableSprints.map((sprint) => (
+                    <option key={sprint.number} value={sprint.number}>
+                      {sprint.label}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ fontSize: '13px', color: '#6b7280', marginLeft: 'auto' }}>
+                  {filteredTasks.length} active tasks
+                </span>
+              </div>
+            </div>
 
             <div className="board-status">
               {loading && <div className="alert alert--info">Syncing with Canvas…</div>}
@@ -301,8 +477,86 @@ function App() {
               )}
             </div>
 
-            <Assignments stages={stages} tasks={filteredTasks} />
+            <Assignments stages={stages} tasks={filteredTasks} onTaskMove={handleTaskMove} />
           </article>
+
+          {completedTasks.length > 0 && (
+            <article className="card" style={{ marginTop: '20px' }}>
+              <header
+                style={{
+                  padding: '16px 20px',
+                  borderBottom: showCompleted ? '1px solid #e5e7eb' : 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+                onClick={() => setShowCompleted(!showCompleted)}
+              >
+                <div>
+                  <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>completed this sprint</p>
+                  <h3 style={{ margin: '4px 0 0 0', fontSize: '16px' }}>
+                    {completedTasks.length} {completedTasks.length === 1 ? 'task' : 'tasks'} done
+                  </h3>
+                </div>
+                <button
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '20px',
+                    cursor: 'pointer',
+                    color: '#6b7280',
+                  }}
+                >
+                  {showCompleted ? '▼' : '▶'}
+                </button>
+              </header>
+              {showCompleted && (
+                <div style={{ padding: '20px' }}>
+                  <div style={{ display: 'grid', gap: '12px' }}>
+                    {completedTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        style={{
+                          padding: '12px 16px',
+                          background: '#f9fafb',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '18px' }}>✅</span>
+                            <strong style={{ fontSize: '14px' }}>{task.title}</strong>
+                          </div>
+                          {task.courseCode && (
+                            <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>{task.courseCode}</p>
+                          )}
+                        </div>
+                        {task.source === 'manual' && (
+                          <button
+                            onClick={() => handleDeleteTask(task.id)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#ef4444',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              padding: '4px 8px',
+                            }}
+                          >
+                            delete
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </article>
+          )}
 
           <div className="grid-two">
             <article className="card schedule-card">
@@ -366,8 +620,15 @@ function App() {
           </div>
         </section>
       </main>
+
+      <CreateTaskModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onCreateTask={handleCreateTask}
+      />
     </div>
   );
 }
+
 
 export default App;
