@@ -63,7 +63,7 @@ cp .env.example .env
 Edit `.env` with your settings:
 ```env
 # Access codes (comma-separated)
-ACCESS_CODES=CMU2025,SCOTTY,TARTAN
+ACCESS_CODES=ACCESS_CODES
 
 # Admin webhook for notifications (optional)
 ADMIN_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
