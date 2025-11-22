@@ -3,10 +3,12 @@
  */
 
 import http, { type ServerResponse, type IncomingMessage } from "node:http";
-import { fetchCanvasAssignments } from "./tools/canvasTools.js";
+import { fetchCanvasAssignments, fetchCanvasCalendarEvents } from "./tools/canvasTools.js";
 import * as logger from "./utils/logger.js";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
+import ical from "node-ical";
+import fetch from "node-fetch";
 
 const PORT = Number(process.env.PORT || 3001);
 const ALLOWED_ORIGIN = process.env.CORS_ORIGIN || "*";
@@ -150,6 +152,98 @@ async function handleAssignmentsRequest(res: ServerResponse, url: URL): Promise<
   }
 }
 
+async function handleCalendarEventsRequest(res: ServerResponse, url: URL): Promise<void> {
+  const startDate = url.searchParams.get("startDate") || undefined;
+  const endDate = url.searchParams.get("endDate") || undefined;
+  const daysAheadParam = url.searchParams.get("daysAhead");
+  const daysAhead = daysAheadParam ? parseOptionalNumber(daysAheadParam) : 7;
+
+  try {
+    const events = await fetchCanvasCalendarEvents.handler({
+      startDate,
+      endDate,
+      daysAhead,
+    });
+    sendJson(res, 200, { events: events.tasks });
+  } catch (error) {
+    logger.error("Failed to fetch Canvas calendar events via HTTP", error);
+    sendJson(res, 500, {
+      error: error instanceof Error ? error.message : "Failed to fetch calendar events",
+    });
+  }
+}
+
+async function handleCampusEventsRequest(res: ServerResponse, url: URL): Promise<void> {
+  const icalUrl = url.searchParams.get("icalUrl") || "https://tartanconnect.cmu.edu/ical/tepper/ical_tepper.ics";
+  const limitParam = url.searchParams.get("limit");
+  const limit = limitParam ? parseOptionalNumber(limitParam) || 10 : 10;
+
+  try {
+    logger.info(`Fetching campus events from iCal: ${icalUrl}`);
+
+    // Fetch the iCal file
+    const response = await fetch(icalUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch iCal feed: ${response.status}`);
+    }
+
+    const icalData = await response.text();
+    const events = await ical.async.parseICS(icalData);
+
+    const now = new Date();
+    const upcomingEvents: any[] = [];
+
+    // Parse and filter events
+    for (const event of Object.values(events)) {
+      if (event.type !== 'VEVENT') continue;
+
+      const startDate = event.start ? new Date(event.start) : null;
+      if (!startDate || startDate < now) continue;
+
+      // Only include events in the next 7 days
+      const daysUntil = (startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysUntil > 7) continue;
+
+      // Handle summary which can be a string or object with val property
+      const title = typeof event.summary === 'string'
+        ? event.summary
+        : (event.summary?.val || 'Untitled Event');
+
+      const description = typeof event.description === 'string'
+        ? event.description
+        : (event.description?.val || '');
+
+      // Clean up location - remove "Sign in to download the location" text
+      let location = event.location || 'TBD';
+      if (location.toLowerCase().includes('sign in to download')) {
+        location = 'Location TBD';
+      }
+
+      upcomingEvents.push({
+        id: event.uid || `event-${Math.random()}`,
+        title,
+        description,
+        location,
+        start: startDate.toISOString(),
+        end: event.end ? new Date(event.end).toISOString() : startDate.toISOString(),
+        url: event.url || '',
+      });
+    }
+
+    // Sort by start date and limit
+    upcomingEvents.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+    const limitedEvents = upcomingEvents.slice(0, limit);
+
+    logger.info(`Returning ${limitedEvents.length} campus events`);
+    sendJson(res, 200, { events: limitedEvents });
+  } catch (error) {
+    logger.error("Failed to fetch campus events via HTTP", error);
+    sendJson(res, 500, {
+      error: error instanceof Error ? error.message : "Failed to fetch campus events",
+    });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   if (!req.url) {
     sendJson(res, 400, { error: "Invalid request" });
@@ -170,6 +264,16 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && parsedUrl.pathname === "/api/assignments") {
     await handleAssignmentsRequest(res, parsedUrl);
+    return;
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/api/calendar-events") {
+    await handleCalendarEventsRequest(res, parsedUrl);
+    return;
+  }
+
+  if (req.method === "GET" && parsedUrl.pathname === "/api/campus-events") {
+    await handleCampusEventsRequest(res, parsedUrl);
     return;
   }
 

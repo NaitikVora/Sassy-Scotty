@@ -4,13 +4,14 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--color-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
   backdrop-filter: blur(4px);
   animation: fadeIn 0.2s ease-out;
+  transition: background 0.3s ease;
 }
 
 @keyframes fadeIn {
@@ -23,14 +24,15 @@
 }
 
 .modal-content {
-  background: white;
+  background: var(--color-card-background);
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 20px 60px var(--color-shadow);
   max-width: 600px;
   width: 90%;
   max-height: 90vh;
   overflow-y: auto;
   animation: slideUp 0.3s ease-out;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 @keyframes slideUp {
@@ -49,21 +51,22 @@
   justify-content: space-between;
   align-items: center;
   padding: 24px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .modal-header h2 {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--color-text-primary);
+  transition: color 0.3s ease;
 }
 
 .modal-close {
   background: none;
   border: none;
   font-size: 32px;
-  color: #9ca3af;
+  color: var(--color-text-muted);
   cursor: pointer;
   padding: 0;
   width: 32px;
@@ -76,8 +79,8 @@
 }
 
 .modal-close:hover {
-  background: #f3f4f6;
-  color: #1f2937;
+  background: var(--color-background-secondary);
+  color: var(--color-text-primary);
 }
 
 .task-form {
@@ -94,8 +97,9 @@
   margin-bottom: 6px;
   font-size: 13px;
   font-weight: 500;
-  color: #6b7280;
+  color: var(--color-text-secondary);
   text-transform: lowercase;
+  transition: color 0.3s ease;
 }
 
 .form-group input,
@@ -103,10 +107,12 @@
 .form-group select {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   font-size: 14px;
   font-family: inherit;
+  background: var(--color-background);
+  color: var(--color-text-primary);
   transition: all 0.2s;
 }
 
@@ -114,8 +120,8 @@
 .form-group textarea:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #8b5cf6;
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-hover);
 }
 
 .form-group textarea {
@@ -135,7 +141,7 @@
   justify-content: flex-end;
   margin-top: 28px;
   padding-top: 20px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--color-border);
 }
 
 .btn-primary,
@@ -150,22 +156,22 @@
 }
 
 .btn-primary {
-  background: #8b5cf6;
+  background: var(--color-primary);
   color: white;
 }
 
 .btn-primary:hover {
-  background: #7c3aed;
+  background: var(--color-primary-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+  box-shadow: 0 4px 12px var(--color-shadow);
 }
 
 .btn-secondary {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--color-background-secondary);
+  color: var(--color-text-secondary);
 }
 
 .btn-secondary:hover {
-  background: #e5e7eb;
-  color: #1f2937;
+  background: var(--color-background-tertiary);
+  color: var(--color-text-primary);
 }

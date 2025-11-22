@@ -1,6 +1,6 @@
 import './Assignments.css';
 import type { KanbanStage, Task } from '../types/task';
-import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, closestCorners } from '@dnd-kit/core';
+import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, closestCorners, useDroppable } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -70,10 +70,8 @@ function DraggableCard({ task }: DraggableCardProps) {
       {...listeners}
       className="assignment-card"
     >
-      <div className="assignment-card__top">
-        <p className="assignment-card__tag">{task.tag || task.type}</p>
-        {task.status && <span className={statusColor(task.status)}>{task.status}</span>}
-      </div>
+      <p className="assignment-card__tag">{task.tag || task.type}</p>
+      {task.status && <span className={statusColor(task.status)}>{task.status}</span>}
       <h4>{task.title}</h4>
       {task.courseCode && <p className="assignment-card__course">{task.courseCode}</p>}
       {formatDue(task.dueAt) && <p className="assignment-card__due">Due {formatDue(task.dueAt)}</p>}
@@ -93,17 +91,20 @@ interface DroppableColumnProps {
 
 function DroppableColumn({ stage, items }: DroppableColumnProps) {
   const itemIds = items.map((item) => item.id.toString());
+  const { setNodeRef } = useDroppable({
+    id: stage.id,
+  });
 
   return (
-    <SortableContext items={itemIds} strategy={verticalListSortingStrategy} id={stage.id}>
-      <section className="kanban__column" style={{ background: stage.background }} data-stage={stage.id}>
+    <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+      <section className="kanban__column" data-stage={stage.id}>
         <header className="kanban__column-header">
           <span>
             {stage.emoji} {stage.name}
           </span>
           <strong>{items.length}</strong>
         </header>
-        <div className="kanban__stack" style={{ minHeight: '200px' }}>
+        <div ref={setNodeRef} className="kanban__stack" style={{ minHeight: '200px' }}>
           {items.length === 0 ? (
             <p className="kanban__empty">Nothing here yet</p>
           ) : (
@@ -178,10 +179,8 @@ export default function Assignments({ tasks, stages, onTaskMove }: AssignmentsPr
       <DragOverlay>
         {activeTask ? (
           <article className="assignment-card" style={{ opacity: 0.9 }}>
-            <div className="assignment-card__top">
-              <p className="assignment-card__tag">{activeTask.tag || activeTask.type}</p>
-              {activeTask.status && <span className={statusColor(activeTask.status)}>{activeTask.status}</span>}
-            </div>
+            <p className="assignment-card__tag">{activeTask.tag || activeTask.type}</p>
+            {activeTask.status && <span className={statusColor(activeTask.status)}>{activeTask.status}</span>}
             <h4>{activeTask.title}</h4>
             {activeTask.courseCode && <p className="assignment-card__course">{activeTask.courseCode}</p>}
             {formatDue(activeTask.dueAt) && <p className="assignment-card__due">Due {formatDue(activeTask.dueAt)}</p>}

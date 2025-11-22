@@ -2,11 +2,18 @@ import './App.css';
 import Assignments from './components/Assignments';
 import CreateTaskModal from './components/CreateTaskModal';
 import MoodSelector from './components/MoodSelector';
-import { mockAssignments, mockFocusBlocks, mockScheduleEvents, vibeCoach } from './data/mockData';
+import PreferencesModal from './components/PreferencesModal';
+import { mockAssignments, mockScheduleEvents, type ScheduleEvent } from './data/mockData';
+
+interface FocusNote {
+  id: string;
+  text: string;
+}
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KanbanStage, Task } from './types/task';
 import { getCurrentSprint, getAvailableSprints, getSprint, isDateInSprint, type Sprint } from './utils/sprintUtils';
 import { applyTheme, getStoredTheme, type Theme } from './utils/themes';
+import { generateVibeCoach } from './utils/vibeCoach';
 
 interface StageConfig {
   id: KanbanStage;
@@ -59,11 +66,35 @@ const stages: StageConfig[] = [
 ];
 
 const filters = ['all vibes', 'projects', 'exams', 'studio'];
-const selfCareIdeas = [
+const cmuSelfCareTips = [
   'Grab matcha at La Prima between classes',
   'Walk through the Cut with a friend after sunset',
-  'Schedule a 20-minute stretch & reset before bed'
+  'Schedule a 20-minute stretch & reset before bed',
+  'Hit the gym at CFA or Wiegand before dinner',
+  'Take a study break at Schenley Park',
+  'Check out a free yoga class at University Center',
+  'Visit the Wellness Initiatives Office in Morewood',
+  'Grab bubble tea at Kung Fu Tea on Forbes',
+  'Take a power nap in a Hunt Library study pod',
+  'Call the Counseling & Psychological Services (412-268-2922)',
+  'Join an outdoor adventure with Venture Outdoors',
+  'Meditate at the Danforth Chapel',
+  'Play ping pong or pool at Cohon',
+  'Watch the sunset from Flagstaff Hill',
+  'Get fresh air along the Mon River Trail',
+  'Visit CMU Health Services if you\'re feeling unwell',
+  'Take advantage of free therapy at CaPS',
+  'Try a new food spot in Oakland',
+  'Study with natural light in Sorrells Library',
+  'Join an intramural sports team for fun',
+  'Attend a free concert at the School of Music',
+  'Take a mental health day when you need it'
 ];
+
+function getRandomItems<T>(array: T[], count: number): T[] {
+  const shuffled = [...array].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, count);
+}
 
 // Get or create user ID
 function getUserId(): string {
@@ -76,42 +107,183 @@ function getUserId(): string {
 }
 
 const API_BASE = 'http://localhost:3001';
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes in milliseconds
+const TASKS_CACHE_KEY = 'canvas_tasks_cache';
+const TASKS_TIMESTAMP_KEY = 'canvas_tasks_timestamp';
+const KANBAN_STATE_KEY = 'kanban_state_local';
+const KANBAN_TIMESTAMP_KEY = 'kanban_state_timestamp';
+
+// Cache helpers for tasks
+function getCachedTasks(): Task[] | null {
+  try {
+    const cached = localStorage.getItem(TASKS_CACHE_KEY);
+    const timestamp = localStorage.getItem(TASKS_TIMESTAMP_KEY);
+
+    if (!cached || !timestamp) return null;
+
+    const age = Date.now() - parseInt(timestamp, 10);
+    if (age > CACHE_DURATION) {
+      // Cache expired
+      localStorage.removeItem(TASKS_CACHE_KEY);
+      localStorage.removeItem(TASKS_TIMESTAMP_KEY);
+      return null;
+    }
+
+    return JSON.parse(cached);
+  } catch (error) {
+    console.error('Failed to read cache:', error);
+    return null;
+  }
+}
+
+function setCachedTasks(tasks: Task[]): void {
+  try {
+    localStorage.setItem(TASKS_CACHE_KEY, JSON.stringify(tasks));
+    localStorage.setItem(TASKS_TIMESTAMP_KEY, Date.now().toString());
+  } catch (error) {
+    console.error('Failed to write cache:', error);
+  }
+}
+
+// Local database helpers for kanban state
+function getLocalKanbanState(): Record<string, KanbanStage> {
+  try {
+    const cached = localStorage.getItem(KANBAN_STATE_KEY);
+    if (!cached) return {};
+    return JSON.parse(cached);
+  } catch (error) {
+    console.error('Failed to read local kanban state:', error);
+    return {};
+  }
+}
+
+function setLocalKanbanState(state: Record<string, KanbanStage>): void {
+  try {
+    localStorage.setItem(KANBAN_STATE_KEY, JSON.stringify(state));
+    localStorage.setItem(KANBAN_TIMESTAMP_KEY, Date.now().toString());
+  } catch (error) {
+    console.error('Failed to write local kanban state:', error);
+  }
+}
+
+function updateLocalKanbanState(taskId: string, stage: KanbanStage): void {
+  const currentState = getLocalKanbanState();
+  currentState[taskId] = stage;
+  setLocalKanbanState(currentState);
+}
+
+function mergeKanbanStates(local: Record<string, KanbanStage>, backend: Record<string, KanbanStage>): Record<string, KanbanStage> {
+  // Merge with local taking precedence for recent changes
+  const localTimestamp = localStorage.getItem(KANBAN_TIMESTAMP_KEY);
+  const localAge = localTimestamp ? Date.now() - parseInt(localTimestamp, 10) : Infinity;
+
+  // If local state is very recent (< 5 minutes), prefer it
+  if (localAge < 5 * 60 * 1000) {
+    return { ...backend, ...local };
+  }
+
+  // Otherwise prefer backend
+  return { ...local, ...backend };
+}
 
 function App() {
   const [activeFilter, setActiveFilter] = useState(filters[0]);
-  const [tasks, setTasks] = useState(mockAssignments);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [customTasks, setCustomTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [usingMock, setUsingMock] = useState(true);
-  const [lastSync, setLastSync] = useState<string>('demo mode');
+  const [usingMock, setUsingMock] = useState(false);
+  const [lastSync, setLastSync] = useState<string>('');
   const [apiUrl, setApiUrl] = useState(INITIAL_API_URL);
   const [apiInfo, setApiInfo] = useState<string | null>(INITIAL_API_NOTE ?? null);
   const [selectedSprint, setSelectedSprint] = useState<Sprint>(getCurrentSprint());
   const [availableSprints] = useState<Sprint[]>(getAvailableSprints());
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<Theme>(getStoredTheme());
+  const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
+  const [scheduleEvents, setScheduleEvents] = useState<ScheduleEvent[]>(mockScheduleEvents);
+  const [focusNotes, setFocusNotes] = useState<FocusNote[]>([]);
+  const [newNoteText, setNewNoteText] = useState('');
+  const [selfCareTips, setSelfCareTips] = useState<string[]>(() => getRandomItems(cmuSelfCareTips, 4));
+  const [postItColor, setPostItColor] = useState<string>('#fef3c7'); // Default yellow
   const apiUrlRef = useRef(INITIAL_API_URL);
   const userId = useRef(getUserId()).current;
+
+  const postItColors = [
+    { name: 'yellow', color: '#fef3c7' },
+    { name: 'pink', color: '#fce7f3' },
+    { name: 'blue', color: '#dbeafe' },
+    { name: 'green', color: '#d1fae5' },
+    { name: 'purple', color: '#e9d5ff' },
+    { name: 'orange', color: '#fed7aa' },
+  ];
 
   // Apply theme on mount and when theme changes
   useEffect(() => {
     applyTheme(currentTheme);
   }, [currentTheme]);
 
-  // Load user data on mount
+  // Load user data and cached tasks on mount
   useEffect(() => {
     apiUrlRef.current = apiUrl;
+
+    // Load from cache immediately for fast initial render
+    const cachedTasks = getCachedTasks();
+    const localKanbanState = getLocalKanbanState();
+
+    if (cachedTasks && cachedTasks.length > 0) {
+      // Apply local kanban state immediately for instant UI
+      const tasksWithLocalState = cachedTasks.map((task: Task) => ({
+        ...task,
+        kanbanStage: localKanbanState[task.id.toString()] || task.kanbanStage || 'brain_dump',
+      }));
+
+      setTasks(tasksWithLocalState);
+      setUsingMock(false);
+      const timestamp = localStorage.getItem(TASKS_TIMESTAMP_KEY);
+      if (timestamp) {
+        const cacheDate = new Date(parseInt(timestamp, 10));
+        setLastSync(cacheDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+      }
+    }
+
+    // Load user data and sync with backend in background
     loadUserData();
+
+    // Load campus events on mount
+    fetchCampusEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save user data whenever tasks or custom tasks change
+  // Keyboard navigation for sprints
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle if not typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      if (e.key === 'ArrowLeft' && e.shiftKey && selectedSprint.number > 1) {
+        e.preventDefault();
+        setSelectedSprint(getSprint(selectedSprint.number - 1));
+      } else if (e.key === 'ArrowRight' && e.shiftKey) {
+        e.preventDefault();
+        setSelectedSprint(getSprint(selectedSprint.number + 1));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedSprint]);
+
+  // Save user data whenever tasks, custom tasks, or focus notes change
   useEffect(() => {
     if (!loading) {
       saveUserData();
     }
-  }, [tasks, customTasks]);
+  }, [tasks, customTasks, focusNotes]);
 
   const loadUserData = useCallback(async () => {
     try {
@@ -119,6 +291,27 @@ function App() {
       if (response.ok) {
         const data = await response.json();
         setCustomTasks(data.customTasks || []);
+        setFocusNotes(data.focusNotes || []);
+        if (data.settings?.selectedCourses) {
+          setSelectedCourses(data.settings.selectedCourses);
+        }
+
+        // Merge backend kanban state with local state
+        if (data.kanbanState) {
+          const localState = getLocalKanbanState();
+          const mergedState = mergeKanbanStates(localState, data.kanbanState);
+
+          // Update local cache with merged state
+          setLocalKanbanState(mergedState);
+
+          // Apply merged state to current tasks
+          setTasks((prevTasks) =>
+            prevTasks.map((task) => ({
+              ...task,
+              kanbanStage: mergedState[task.id.toString()] || task.kanbanStage || 'brain_dump',
+            }))
+          );
+        }
       }
     } catch (error) {
       console.error('Failed to load user data:', error);
@@ -135,9 +328,11 @@ function App() {
 
       const data = {
         customTasks,
+        focusNotes,
         kanbanState,
         settings: {
           selectedSprint: selectedSprint.number,
+          selectedCourses,
         },
       };
 
@@ -149,9 +344,53 @@ function App() {
     } catch (error) {
       console.error('Failed to save user data:', error);
     }
-  }, [userId, tasks, customTasks, selectedSprint]);
+  }, [userId, tasks, customTasks, selectedSprint, selectedCourses]);
 
-  const fetchAssignments = useCallback(async () => {
+  const fetchAssignments = useCallback(async (forceRefresh: boolean = false) => {
+    // Check cache first unless force refresh
+    if (!forceRefresh) {
+      const cachedTasks = getCachedTasks();
+      if (cachedTasks && cachedTasks.length > 0) {
+        // Use local kanban state first, then merge with backend
+        const localKanbanState = getLocalKanbanState();
+
+        try {
+          const userDataResponse = await fetch(`${API_BASE}/api/user/${userId}/data`);
+          if (userDataResponse.ok) {
+            const userData = await userDataResponse.json();
+            const backendKanbanState = userData.kanbanState || {};
+            const mergedState = mergeKanbanStates(localKanbanState, backendKanbanState);
+
+            // Update local cache with merged state
+            setLocalKanbanState(mergedState);
+
+            const tasksWithState = cachedTasks.map((task: Task) => ({
+              ...task,
+              kanbanStage: mergedState[task.id.toString()] || task.kanbanStage || 'brain_dump',
+            }));
+
+            setTasks(tasksWithState);
+          } else {
+            // Use local state only if backend fails
+            const tasksWithLocalState = cachedTasks.map((task: Task) => ({
+              ...task,
+              kanbanStage: localKanbanState[task.id.toString()] || task.kanbanStage || 'brain_dump',
+            }));
+            setTasks(tasksWithLocalState);
+          }
+        } catch (err) {
+          console.error('Failed to load kanban state:', err);
+          // Use local state as fallback
+          const tasksWithLocalState = cachedTasks.map((task: Task) => ({
+            ...task,
+            kanbanStage: localKanbanState[task.id.toString()] || task.kanbanStage || 'brain_dump',
+          }));
+          setTasks(tasksWithLocalState);
+        }
+        return; // Use cache, skip Canvas fetch
+      }
+    }
+
     setLoading(true);
     setError(null);
     const startUrl = apiUrlRef.current ?? INITIAL_API_URL;
@@ -189,6 +428,9 @@ function App() {
           kanbanStage: kanbanState[task.id.toString()] || task.kanbanStage || 'brain_dump',
         }));
 
+        // Cache the fetched tasks
+        setCachedTasks(tasksWithState);
+
         setTasks(tasksWithState);
         setUsingMock(false);
         if (apiUrlRef.current !== url) {
@@ -221,11 +463,70 @@ function App() {
     setLoading(false);
   }, [apiUrl, userId]);
 
-  useEffect(() => {
-    fetchAssignments();
-  }, [fetchAssignments]);
+  const fetchCampusEvents = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/campus-events?limit=4`);
+      if (!response.ok) {
+        throw new Error(`Campus events API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const events = Array.isArray(data?.events) ? data.events : [];
+
+      // Filter to only show today's events
+      const today = new Date();
+      const todayEvents = events.filter((event: any) => {
+        const startDate = new Date(event.start);
+        return startDate.toDateString() === today.toDateString();
+      });
+
+      // Transform campus event data to ScheduleEvent format
+      const scheduleEvents: ScheduleEvent[] = todayEvents.map((event: any) => {
+        const startDate = new Date(event.start);
+
+        // Since we're only showing today's events, just show the time
+        const timeStr = startDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+        // Generate fun vibes based on event title
+        let vibe = 'check it out';
+        const title = event.title.toLowerCase();
+        if (title.includes('career') || title.includes('job') || title.includes('recruit')) {
+          vibe = 'secure the bag';
+        } else if (title.includes('workshop') || title.includes('seminar')) {
+          vibe = 'expand the brain';
+        } else if (title.includes('social') || title.includes('mixer') || title.includes('party')) {
+          vibe = 'touch grass';
+        } else if (title.includes('food') || title.includes('lunch') || title.includes('dinner')) {
+          vibe = 'free food szn';
+        } else if (title.includes('competition') || title.includes('hackathon')) {
+          vibe = 'lock in';
+        }
+
+        return {
+          id: event.id,
+          title: event.title,
+          context: event.location || 'Location TBD',
+          location: event.location || 'Location TBD',
+          time: timeStr,
+          vibe,
+        };
+      });
+
+      setScheduleEvents(scheduleEvents.length > 0 ? scheduleEvents : mockScheduleEvents);
+    } catch (error) {
+      console.error('Failed to fetch campus events:', error);
+      setScheduleEvents(mockScheduleEvents);
+    }
+  }, []);
+
+  // Don't fetch automatically on mount - use cache instead
+  // Only fetch when user explicitly requests it via the refresh button
 
   const handleTaskMove = useCallback((taskId: string | number, newStage: KanbanStage) => {
+    // Save to local storage immediately for instant persistence
+    updateLocalKanbanState(taskId.toString(), newStage);
+
+    // Update UI state
     setTasks((prevTasks) =>
       prevTasks.map((task) =>
         task.id === taskId || task.id.toString() === taskId.toString()
@@ -240,6 +541,8 @@ function App() {
           : task
       )
     );
+
+    // Backend sync happens automatically via useEffect
   }, []);
 
   const handleCreateTask = useCallback((taskData: Omit<Task, 'id'>) => {
@@ -254,38 +557,84 @@ function App() {
     setCustomTasks((prev) => prev.filter((task) => task.id !== taskId));
   }, []);
 
+  const handleAddNote = useCallback(() => {
+    if (newNoteText.trim()) {
+      const newNote: FocusNote = {
+        id: `note-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        text: newNoteText.trim(),
+      };
+      setFocusNotes((prev) => [...prev, newNote]);
+      setNewNoteText('');
+    }
+  }, [newNoteText]);
+
+  const handleDeleteNote = useCallback((noteId: string) => {
+    setFocusNotes((prev) => prev.filter((note) => note.id !== noteId));
+  }, []);
+
+  const shuffleSelfCareTips = useCallback(() => {
+    setSelfCareTips(getRandomItems(cmuSelfCareTips, 4));
+  }, []);
+
+  const handleRefresh = useCallback(async () => {
+    await fetchAssignments(true); // Force refresh from Canvas
+    await fetchCampusEvents(); // Also refresh campus events
+  }, [fetchAssignments, fetchCampusEvents]);
+
+  // Initialize selected courses when tasks first load
+  useEffect(() => {
+    if (tasks.length > 0 && selectedCourses.length === 0) {
+      const allCourses = Array.from(
+        new Set(
+          tasks
+            .filter((task) => task.courseCode)
+            .map((task) => task.courseCode as string)
+        )
+      );
+      setSelectedCourses(allCourses);
+    }
+  }, [tasks, selectedCourses.length]);
+
   // Combine Canvas tasks and custom tasks
   const allTasks = useMemo(() => [...tasks, ...customTasks], [tasks, customTasks]);
 
-  // Filter by sprint (only show tasks within current sprint date range)
+  // Filter by sprint and selected courses
   const sprintFilteredTasks = useMemo(() => {
     return allTasks.filter((task) => {
+      // Filter by selected courses (if task has a course code)
+      if (task.courseCode && selectedCourses.length > 0 && !selectedCourses.includes(task.courseCode)) {
+        return false;
+      }
+
       // If task has no due date, include it (user can manually manage)
       if (!task.dueAt) return true;
 
       // Check if task due date falls within selected sprint
       return isDateInSprint(task.dueAt, selectedSprint);
     });
-  }, [allTasks, selectedSprint]);
+  }, [allTasks, selectedSprint, selectedCourses]);
 
   const filteredTasks = useMemo(() => {
-    const tasksToFilter = sprintFilteredTasks.filter((task) => task.kanbanStage !== 'done');
-
     switch (activeFilter) {
       case 'projects':
-        return tasksToFilter.filter((task) => task.tag === 'project' || task.type === 'assignment');
+        return sprintFilteredTasks.filter((task) => task.tag === 'project' || task.type === 'assignment');
       case 'exams':
-        return tasksToFilter.filter((task) => task.tag === 'exam' || task.type === 'exam');
+        return sprintFilteredTasks.filter((task) => task.tag === 'exam' || task.type === 'exam');
       case 'studio':
-        return tasksToFilter.filter((task) => task.tag === 'studio');
+        return sprintFilteredTasks.filter((task) => task.tag === 'studio');
       default:
-        return tasksToFilter;
+        return sprintFilteredTasks;
     }
   }, [activeFilter, sprintFilteredTasks]);
 
   const completedTasks = useMemo(() => {
     return sprintFilteredTasks.filter((task) => task.kanbanStage === 'done');
   }, [sprintFilteredTasks]);
+
+  // Generate dynamic vibe coach based on actual tasks
+  const vibeCoach = useMemo(() => {
+    return generateVibeCoach(sprintFilteredTasks, completedTasks);
+  }, [sprintFilteredTasks, completedTasks]);
 
   const urgentTasks = useMemo(() => sprintFilteredTasks.filter((task) => task.kanbanStage === 'kinda_urgent'), [sprintFilteredTasks]);
   const hotList = useMemo(() => urgentTasks.slice(0, 3), [urgentTasks]);
@@ -298,7 +647,7 @@ function App() {
   const stats = [
     { label: 'due today', value: dueTodayCount },
     { label: 'in progress', value: inProgressCount },
-    { label: 'focus blocks', value: mockFocusBlocks.length },
+    { label: 'quick notes', value: focusNotes.length },
     { label: 'wins logged', value: vibeCoach.wins.length }
   ];
 
@@ -322,7 +671,7 @@ function App() {
             <span>{heroStatusLabel}</span>
             <strong>{heroStatusValue}</strong>
           </div>
-          <button className="primary-btn" disabled={loading} onClick={fetchAssignments}>
+          <button className="primary-btn" disabled={loading} onClick={handleRefresh}>
             {loading ? 'syncing…' : '🔄 refresh the vibes'}
           </button>
         </div>
@@ -405,6 +754,24 @@ function App() {
               ))}
             </ul>
           </article>
+
+          <article className="card">
+            <header className="section-header compact">
+              <div>
+                <p>tartan connect</p>
+                <h3>campus events today</h3>
+              </div>
+            </header>
+            <div className="campus-events-grid">
+              {scheduleEvents.slice(0, 4).map((event) => (
+                <div key={event.id} className="campus-event-tile">
+                  <strong className="event-title">{event.title}</strong>
+                  <p className="event-time">{event.time}</p>
+                  <p className="event-location">{event.location}</p>
+                </div>
+              ))}
+            </div>
+          </article>
         </section>
 
         <section className="main-column">
@@ -429,35 +796,177 @@ function App() {
                 <button className="primary-btn" onClick={() => setIsCreateModalOpen(true)}>
                   + new task
                 </button>
+                <button
+                  onClick={() => setIsPreferencesOpen(true)}
+                  style={{
+                    padding: '10px 16px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-card-background)',
+                    color: 'var(--color-text-primary)',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--color-primary)';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--color-border)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                  title="Filter courses"
+                >
+                  ⚙️ preferences
+                </button>
               </div>
             </header>
 
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb', background: '#fafafa' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                <label style={{ fontSize: '13px', fontWeight: 500, color: '#6b7280' }}>
-                  Sprint:
-                </label>
-                <select
-                  value={selectedSprint.number}
-                  onChange={(e) => setSelectedSprint(getSprint(Number(e.target.value)))}
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid #d1d5db',
-                    fontSize: '14px',
-                    background: 'white',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {availableSprints.map((sprint) => (
-                    <option key={sprint.number} value={sprint.number}>
-                      {sprint.label}
-                    </option>
-                  ))}
-                </select>
-                <span style={{ fontSize: '13px', color: '#6b7280', marginLeft: 'auto' }}>
-                  {filteredTasks.length} active tasks
-                </span>
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--color-border)',
+              background: 'var(--color-background-secondary)',
+              transition: 'background-color 0.3s ease'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '16px',
+                flexWrap: 'wrap',
+                justifyContent: 'space-between'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <label style={{
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: 'var(--color-text-muted)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Sprint:
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      onClick={() => setSelectedSprint(getSprint(selectedSprint.number - 1))}
+                      disabled={selectedSprint.number <= 1}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: 'var(--color-card-background)',
+                        color: 'var(--color-text-primary)',
+                        cursor: selectedSprint.number <= 1 ? 'not-allowed' : 'pointer',
+                        fontSize: '16px',
+                        fontWeight: 'bold',
+                        opacity: selectedSprint.number <= 1 ? 0.4 : 1,
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 1px 3px var(--color-shadow)',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (selectedSprint.number > 1) {
+                          e.currentTarget.style.transform = 'translateY(-1px)';
+                          e.currentTarget.style.boxShadow = '0 4px 8px var(--color-shadow)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 1px 3px var(--color-shadow)';
+                      }}
+                      title="Previous sprint (Shift + ←)"
+                    >
+                      ←
+                    </button>
+                    <div style={{
+                      padding: '10px 20px',
+                      borderRadius: '12px',
+                      background: 'var(--color-primary)',
+                      color: 'white',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      minWidth: '220px',
+                      textAlign: 'center',
+                      boxShadow: '0 2px 8px var(--color-shadow)',
+                    }}>
+                      {selectedSprint.label}
+                    </div>
+                    <button
+                      onClick={() => setSelectedSprint(getSprint(selectedSprint.number + 1))}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: 'var(--color-card-background)',
+                        color: 'var(--color-text-primary)',
+                        cursor: 'pointer',
+                        fontSize: '16px',
+                        fontWeight: 'bold',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 1px 3px var(--color-shadow)',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = '0 4px 8px var(--color-shadow)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 1px 3px var(--color-shadow)';
+                      }}
+                      title="Next sprint (Shift + →)"
+                    >
+                      →
+                    </button>
+                  </div>
+                  {selectedSprint.number !== getCurrentSprint().number && (
+                    <button
+                      onClick={() => setSelectedSprint(getCurrentSprint())}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--color-primary)',
+                        background: 'transparent',
+                        color: 'var(--color-primary)',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        transition: 'all 0.2s ease',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'var(--color-primary)';
+                        e.currentTarget.style.color = 'white';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = 'var(--color-primary)';
+                      }}
+                      title="Jump to current sprint"
+                    >
+                      Today
+                    </button>
+                  )}
+                </div>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
+                  fontSize: '13px',
+                  color: 'var(--color-text-muted)'
+                }}>
+                  <span>
+                    <strong style={{ color: 'var(--color-primary)' }}>{filteredTasks.length}</strong> active
+                  </span>
+                  {completedTasks.length > 0 && (
+                    <span>
+                      <strong style={{ color: 'var(--color-success)' }}>{completedTasks.length}</strong> completed
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -485,17 +994,18 @@ function App() {
               <header
                 style={{
                   padding: '16px 20px',
-                  borderBottom: showCompleted ? '1px solid #e5e7eb' : 'none',
+                  borderBottom: showCompleted ? '1px solid var(--color-border)' : 'none',
                   cursor: 'pointer',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
+                  transition: 'border-color 0.3s ease',
                 }}
                 onClick={() => setShowCompleted(!showCompleted)}
               >
                 <div>
-                  <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>completed this sprint</p>
-                  <h3 style={{ margin: '4px 0 0 0', fontSize: '16px' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: 0, transition: 'color 0.3s ease' }}>completed this sprint</p>
+                  <h3 style={{ margin: '4px 0 0 0', fontSize: '16px', color: 'var(--color-text-primary)', transition: 'color 0.3s ease' }}>
                     {completedTasks.length} {completedTasks.length === 1 ? 'task' : 'tasks'} done
                   </h3>
                 </div>
@@ -505,7 +1015,8 @@ function App() {
                     border: 'none',
                     fontSize: '20px',
                     cursor: 'pointer',
-                    color: '#6b7280',
+                    color: 'var(--color-text-secondary)',
+                    transition: 'color 0.3s ease',
                   }}
                 >
                   {showCompleted ? '▼' : '▶'}
@@ -519,20 +1030,21 @@ function App() {
                         key={task.id}
                         style={{
                           padding: '12px 16px',
-                          background: '#f9fafb',
+                          background: 'var(--color-background-secondary)',
                           borderRadius: '8px',
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
+                          transition: 'background-color 0.3s ease',
                         }}
                       >
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                             <span style={{ fontSize: '18px' }}>✅</span>
-                            <strong style={{ fontSize: '14px' }}>{task.title}</strong>
+                            <strong style={{ fontSize: '14px', color: 'var(--color-text-primary)', transition: 'color 0.3s ease' }}>{task.title}</strong>
                           </div>
                           {task.courseCode && (
-                            <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>{task.courseCode}</p>
+                            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: 0, transition: 'color 0.3s ease' }}>{task.courseCode}</p>
                           )}
                         </div>
                         {task.source === 'manual' && (
@@ -541,10 +1053,11 @@ function App() {
                             style={{
                               background: 'none',
                               border: 'none',
-                              color: '#ef4444',
+                              color: 'var(--color-danger)',
                               cursor: 'pointer',
                               fontSize: '12px',
                               padding: '4px 8px',
+                              transition: 'color 0.3s ease',
                             }}
                           >
                             delete
@@ -559,64 +1072,89 @@ function App() {
           )}
 
           <div className="grid-two">
-            <article className="card schedule-card">
+            <article className="card">
               <header className="section-header compact">
                 <div>
-                  <p>campus schedule</p>
-                  <h3>where you gotta be</h3>
+                  <p>quick notes</p>
+                  <h3>jot it down</h3>
                 </div>
-                <span>{mockScheduleEvents.length} stops</span>
               </header>
-              <ul className="schedule-list">
-                {mockScheduleEvents.map((event) => (
-                  <li key={event.id}>
-                    <div>
-                      <p className="schedule-list__context">{event.context}</p>
-                      <strong>{event.title}</strong>
-                      <span>{event.location}</span>
-                    </div>
-                    <div className="schedule-list__meta">
-                      <strong>{event.time}</strong>
-                      <span>{event.vibe}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <div className="focus-notes">
+                <div className="focus-notes__input">
+                  <input
+                    type="text"
+                    value={newNoteText}
+                    onChange={(e) => setNewNoteText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleAddNote();
+                      }
+                    }}
+                    placeholder="Add a note or task..."
+                    className="note-input"
+                  />
+                  <button onClick={handleAddNote} className="btn btn--primary btn--sm">
+                    Add
+                  </button>
+                </div>
+                <ul className="focus-notes__list">
+                  {focusNotes.length === 0 ? (
+                    <li className="focus-notes__empty">No notes yet. Start by adding one above!</li>
+                  ) : (
+                    focusNotes.map((note) => (
+                      <li key={note.id} className="focus-note">
+                        <span>{note.text}</span>
+                        <button onClick={() => handleDeleteNote(note.id)} className="note-delete" aria-label="Delete note">
+                          ×
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </div>
             </article>
 
-            <div className="vertical-stack">
-              <article className="card focus-card">
-                <header>
-                  <p>focus blocks</p>
-                </header>
-                <ul>
-                  {mockFocusBlocks.map((block) => (
-                    <li key={block.id}>
-                      <div>
-                        <p className="focus-card__window">{block.window}</p>
-                        <strong>{block.title}</strong>
-                        <span>{block.description}</span>
-                      </div>
-                      <div className="focus-card__meta">
-                        <span>{block.energy} energy</span>
-                        <p>{block.playlist}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </article>
-
-              <article className="card mini-card">
-                <header>
+            <article className="card">
+              <header className="section-header compact">
+                <div>
                   <p>self care</p>
-                </header>
-                <ul className="self-care">
-                  {selfCareIdeas.map((tip) => (
-                    <li key={tip}>{tip}</li>
-                  ))}
-                </ul>
-              </article>
-            </div>
+                  <h3>take a break</h3>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <div className="color-picker">
+                    {postItColors.map((item) => (
+                      <button
+                        key={item.name}
+                        onClick={() => setPostItColor(item.color)}
+                        className={`color-dot ${postItColor === item.color ? 'active' : ''}`}
+                        style={{ backgroundColor: item.color }}
+                        aria-label={`${item.name} color`}
+                        title={item.name}
+                      />
+                    ))}
+                  </div>
+                  <button
+                    onClick={shuffleSelfCareTips}
+                    className="shuffle-btn"
+                    aria-label="Shuffle tips"
+                    title="Get new tips"
+                  >
+                    ↻
+                  </button>
+                </div>
+              </header>
+              <div className="post-it-grid">
+                {selfCareTips.map((tip, index) => (
+                  <div
+                    key={`${tip}-${index}`}
+                    className="post-it-note"
+                    style={{ backgroundColor: postItColor }}
+                  >
+                    {tip}
+                  </div>
+                ))}
+              </div>
+            </article>
           </div>
         </section>
       </main>
@@ -625,6 +1163,13 @@ function App() {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onCreateTask={handleCreateTask}
+      />
+      <PreferencesModal
+        isOpen={isPreferencesOpen}
+        onClose={() => setIsPreferencesOpen(false)}
+        tasks={allTasks}
+        selectedCourses={selectedCourses}
+        onSavePreferences={setSelectedCourses}
       />
     </div>
   );
