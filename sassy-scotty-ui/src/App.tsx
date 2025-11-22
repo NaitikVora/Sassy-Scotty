@@ -239,6 +239,13 @@ function mergeKanbanStates(local: Record<string, KanbanStage>, backend: Record<s
   return { ...local, ...backend };
 }
 
+// Fun emojis that rotate on each refresh
+const vibeEmojis = ['🎯', '🚀', '✨', '🔥', '💯', '⚡', '🎨', '🌟', '💪', '🎪', '🦄', '🌈', '🎭', '🎸', '🎮'];
+
+function getRandomEmoji(): string {
+  return vibeEmojis[Math.floor(Math.random() * vibeEmojis.length)];
+}
+
 function App() {
   const [activeFilter, setActiveFilter] = useState(filters[0]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -260,6 +267,7 @@ function App() {
   const [newNoteText, setNewNoteText] = useState('');
   const [selfCareTips, setSelfCareTips] = useState<string[]>(() => getRandomItems(cmuSelfCareTips, 4));
   const [noteCardColor, setNoteCardColor] = useState<string>('#fef3c7'); // Default sticky note color
+  const [brandEmoji] = useState<string>(() => getRandomEmoji()); // Random emoji on mount
   const apiUrlRef = useRef(INITIAL_API_URL);
   const userId = useRef(getUserId()).current;
 
@@ -736,11 +744,10 @@ function App() {
     <div className="app-shell">
       <header className="hero card">
         <div className="brand">
-          <div className="brand__badge">✨</div>
+          <div className="brand__badge">{brandEmoji}</div>
           <div>
-            <p className="brand__eyebrow">CMU productivity, but make it cute</p>
-            <h1>Sassy Scotty HQ</h1>
-            <p className="brand__tagline">your vibe command center</p>
+            <h1 className="brand__title">scotty szn</h1>
+            <p className="brand__tagline">cmu productivity hits different</p>
           </div>
         </div>
         <div className="hero__actions">
@@ -750,7 +757,7 @@ function App() {
             <strong>{heroStatusValue}</strong>
           </div>
           <button className="primary-btn" disabled={loading} onClick={handleRefresh}>
-            {loading ? 'syncing…' : '🔄 refresh the vibes'}
+            {loading ? 'syncing…' : '🔄 sync canvas'}
           </button>
         </div>
       </header>
@@ -1251,6 +1258,33 @@ function App() {
         selectedCourses={selectedCourses}
         onSavePreferences={setSelectedCourses}
       />
+
+      <footer className="app-footer">
+        <div className="footer-content">
+          <div className="footer-left">
+            <span className="footer-made-by">made with 💙 at cmu</span>
+          </div>
+          <div className="footer-right">
+            <a
+              href="https://www.linkedin.com/in/naitikvora/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="footer-link"
+            >
+              linkedin
+            </a>
+            <span className="footer-separator">•</span>
+            <a
+              href="mailto:nvora@andrew.cmu.edu"
+              className="footer-link"
+            >
+              nvora@andrew.cmu.edu
+            </a>
+            <span className="footer-separator">•</span>
+            <span className="footer-credit">by naitik vora</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
