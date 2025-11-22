@@ -135,12 +135,7 @@ export function generateVibeCoach(tasks: Task[], completedTasks: Task[]): VibeCo
     energy = 95;
     tips = getRandomItems(CHILL_TIPS, 3);
   } else {
-    mood = getRandomItem([
-      "main character energy",
-      "honestly thriving rn",
-      "we're so back",
-      "literally locked in"
-    ]);
+    mood = getRandomItem(MOODS);
     energy = Math.min(90, 75 + (completedTasks.length * 2));
     tips = getRandomItems([...MODERATE_TIPS, ...CHILL_TIPS], 3);
   }

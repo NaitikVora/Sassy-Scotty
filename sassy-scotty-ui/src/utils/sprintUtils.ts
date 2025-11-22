@@ -57,7 +57,7 @@ export function getCurrentSprint(): Sprint {
 /**
  * Get a list of recent and upcoming sprints
  */
-export function getAvailableSprints(count: number = 10): Sprint[] {
+export function getAvailableSprints(): Sprint[] {
   const currentSprintNumber = getSprintNumber(new Date());
   const sprints: Sprint[] = [];
 

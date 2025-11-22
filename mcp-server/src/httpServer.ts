@@ -14,6 +14,15 @@ const PORT = Number(process.env.PORT || 3001);
 const ALLOWED_ORIGIN = process.env.CORS_ORIGIN || "*";
 const DATA_DIR = join(process.cwd(), "data");
 
+type MaybeIcalText = string | { val?: unknown } | null | undefined;
+
+function getIcalTextValue(value: MaybeIcalText, fallback = ""): string {
+  if (!value) return fallback;
+  if (typeof value === "string") return value;
+  const val = value.val;
+  return typeof val === "string" ? val : fallback;
+}
+
 // Ensure data directory exists
 await fs.mkdir(DATA_DIR, { recursive: true });
 
@@ -204,17 +213,12 @@ async function handleCampusEventsRequest(res: ServerResponse, url: URL): Promise
       const daysUntil = (startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
       if (daysUntil > 7) continue;
 
-      // Handle summary which can be a string or object with val property
-      const title = typeof event.summary === 'string'
-        ? event.summary
-        : (event.summary?.val || 'Untitled Event');
-
-      const description = typeof event.description === 'string'
-        ? event.description
-        : (event.description?.val || '');
+      // Handle summary/description which can be string or { val }
+      const title = getIcalTextValue(event.summary, 'Untitled Event');
+      const description = getIcalTextValue(event.description, '');
 
       // Clean up location - remove "Sign in to download the location" text
-      let location = event.location || 'TBD';
+      let location = getIcalTextValue(event.location, 'TBD');
       if (location.toLowerCase().includes('sign in to download')) {
         location = 'Location TBD';
       }

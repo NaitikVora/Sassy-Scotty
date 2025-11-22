@@ -685,9 +685,6 @@ body {
   list-style: none;
   padding: 0;
   margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 .focus-notes__empty {
@@ -699,49 +696,32 @@ body {
   border-radius: 8px;
 }
 
-.focus-note {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  background: var(--color-background-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  transition: all 0.2s ease;
-}
-
-.focus-note:hover {
-  background: var(--color-background-tertiary);
-}
-
-.focus-note span {
-  flex: 1;
-  font-size: 14px;
-  color: var(--color-text-primary);
-  line-height: 1.5;
-}
-
 .note-delete {
   background: none;
   border: none;
-  color: var(--color-text-muted);
-  font-size: 24px;
+  color: rgba(55, 65, 81, 0.6);
+  font-size: 20px;
   cursor: pointer;
   padding: 0;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 50%;
   transition: all 0.2s ease;
   line-height: 1;
 }
 
 .note-delete:hover {
   color: var(--color-danger);
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.note-delete--floating {
+  position: absolute;
+  top: 8px;
+  right: 8px;
 }
 
 /* Shuffle Button */
@@ -778,7 +758,7 @@ body {
 }
 
 .post-it-note {
-  padding: 20px 16px;
+  padding: 32px 16px 16px;
   font-size: 13px;
   line-height: 1.6;
   color: #374151;
@@ -789,9 +769,11 @@ body {
   position: relative;
   min-height: 140px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   transition: all 0.3s ease;
   cursor: default;
+  word-break: break-word;
 }
 
 .post-it-note:nth-child(1) {
@@ -816,6 +798,11 @@ body {
     4px 4px 12px rgba(0, 0, 0, 0.15),
     0 0 0 1px rgba(0, 0, 0, 0.08);
   z-index: 10;
+}
+
+.post-it-note span {
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .post-it-note::before {
@@ -865,4 +852,42 @@ body {
   .post-it-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Self Care tips */
+.self-care-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.self-care-tip {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 16px;
+  border-radius: 12px;
+  background: linear-gradient(120deg, rgba(79, 70, 229, 0.08), rgba(236, 72, 153, 0.08));
+  border: 1px solid rgba(79, 70, 229, 0.15);
+}
+
+.self-care-tip__index {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-background);
+  color: var(--color-primary);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.self-care-tip p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-text-primary);
+  line-height: 1.5;
 }

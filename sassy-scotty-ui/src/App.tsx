@@ -4,16 +4,16 @@ import CreateTaskModal from './components/CreateTaskModal';
 import MoodSelector from './components/MoodSelector';
 import PreferencesModal from './components/PreferencesModal';
 import { mockAssignments, mockScheduleEvents, type ScheduleEvent } from './data/mockData';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { KanbanStage, Task } from './types/task';
+import { getCurrentSprint, getSprint, isDateInSprint, type Sprint } from './utils/sprintUtils';
+import { applyTheme, getStoredTheme, type Theme } from './utils/themes';
+import { generateVibeCoach } from './utils/vibeCoach';
 
 interface FocusNote {
   id: string;
   text: string;
 }
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { KanbanStage, Task } from './types/task';
-import { getCurrentSprint, getAvailableSprints, getSprint, isDateInSprint, type Sprint } from './utils/sprintUtils';
-import { applyTheme, getStoredTheme, type Theme } from './utils/themes';
-import { generateVibeCoach } from './utils/vibeCoach';
 
 interface StageConfig {
   id: KanbanStage;
@@ -57,6 +57,19 @@ function sanitizeApiUrl(rawUrl?: string): { url: string; note?: string } {
 
 const rawCanvasApiUrl = import.meta.env.VITE_CANVAS_API_URL as string | undefined;
 const { url: INITIAL_API_URL, note: INITIAL_API_NOTE } = sanitizeApiUrl(rawCanvasApiUrl);
+
+const apiBaseEnv = (import.meta.env.VITE_HTTP_GATEWAY_BASE as string | undefined)?.trim() ?? '';
+const API_BASE = apiBaseEnv.replace(/\/$/, '');
+const CANVAS_PROXY_ENABLED = typeof __CANVAS_PROXY_ENABLED__ === 'undefined' ? true : __CANVAS_PROXY_ENABLED__;
+const IS_CANVAS_GATEWAY_OFFLINE = !API_BASE && !CANVAS_PROXY_ENABLED;
+
+const buildApiUrl = (path: string): string => {
+  if (!API_BASE) return path;
+  if (path.startsWith('/')) {
+    return `${API_BASE}${path}`;
+  }
+  return `${API_BASE}/${path}`;
+};
 
 const stages: StageConfig[] = [
   { id: 'brain_dump', name: 'brain dump', emoji: '🧠', background: '#f4f4f8' },
@@ -106,12 +119,13 @@ function getUserId(): string {
   return userId;
 }
 
-const API_BASE = 'http://localhost:3001';
 const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes in milliseconds
 const TASKS_CACHE_KEY = 'canvas_tasks_cache';
 const TASKS_TIMESTAMP_KEY = 'canvas_tasks_timestamp';
 const KANBAN_STATE_KEY = 'kanban_state_local';
 const KANBAN_TIMESTAMP_KEY = 'kanban_state_timestamp';
+const FOCUS_NOTES_KEY = 'focus_notes_cache';
+const CUSTOM_TASKS_KEY = 'custom_tasks_cache';
 
 // Cache helpers for tasks
 function getCachedTasks(): Task[] | null {
@@ -172,6 +186,45 @@ function updateLocalKanbanState(taskId: string, stage: KanbanStage): void {
   setLocalKanbanState(currentState);
 }
 
+// Local storage helpers for focus notes and custom tasks
+function getCachedFocusNotes(): FocusNote[] {
+  try {
+    const cached = localStorage.getItem(FOCUS_NOTES_KEY);
+    if (!cached) return [];
+    return JSON.parse(cached);
+  } catch (error) {
+    console.error('Failed to read cached focus notes:', error);
+    return [];
+  }
+}
+
+function setCachedFocusNotes(notes: FocusNote[]): void {
+  try {
+    localStorage.setItem(FOCUS_NOTES_KEY, JSON.stringify(notes));
+  } catch (error) {
+    console.error('Failed to cache focus notes:', error);
+  }
+}
+
+function getCachedCustomTasks(): Task[] {
+  try {
+    const cached = localStorage.getItem(CUSTOM_TASKS_KEY);
+    if (!cached) return [];
+    return JSON.parse(cached);
+  } catch (error) {
+    console.error('Failed to read cached custom tasks:', error);
+    return [];
+  }
+}
+
+function setCachedCustomTasks(tasks: Task[]): void {
+  try {
+    localStorage.setItem(CUSTOM_TASKS_KEY, JSON.stringify(tasks));
+  } catch (error) {
+    console.error('Failed to cache custom tasks:', error);
+  }
+}
+
 function mergeKanbanStates(local: Record<string, KanbanStage>, backend: Record<string, KanbanStage>): Record<string, KanbanStage> {
   // Merge with local taking precedence for recent changes
   const localTimestamp = localStorage.getItem(KANBAN_TIMESTAMP_KEY);
@@ -197,7 +250,6 @@ function App() {
   const [apiUrl, setApiUrl] = useState(INITIAL_API_URL);
   const [apiInfo, setApiInfo] = useState<string | null>(INITIAL_API_NOTE ?? null);
   const [selectedSprint, setSelectedSprint] = useState<Sprint>(getCurrentSprint());
-  const [availableSprints] = useState<Sprint[]>(getAvailableSprints());
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -207,11 +259,11 @@ function App() {
   const [focusNotes, setFocusNotes] = useState<FocusNote[]>([]);
   const [newNoteText, setNewNoteText] = useState('');
   const [selfCareTips, setSelfCareTips] = useState<string[]>(() => getRandomItems(cmuSelfCareTips, 4));
-  const [postItColor, setPostItColor] = useState<string>('#fef3c7'); // Default yellow
+  const [noteCardColor, setNoteCardColor] = useState<string>('#fef3c7'); // Default sticky note color
   const apiUrlRef = useRef(INITIAL_API_URL);
   const userId = useRef(getUserId()).current;
 
-  const postItColors = [
+  const noteCardColors = [
     { name: 'yellow', color: '#fef3c7' },
     { name: 'pink', color: '#fce7f3' },
     { name: 'blue', color: '#dbeafe' },
@@ -232,6 +284,16 @@ function App() {
     // Load from cache immediately for fast initial render
     const cachedTasks = getCachedTasks();
     const localKanbanState = getLocalKanbanState();
+    const cachedNotes = getCachedFocusNotes();
+    const cachedCustomTasks = getCachedCustomTasks();
+
+    // Load cached notes and custom tasks immediately
+    if (cachedNotes.length > 0) {
+      setFocusNotes(cachedNotes);
+    }
+    if (cachedCustomTasks.length > 0) {
+      setCustomTasks(cachedCustomTasks);
+    }
 
     if (cachedTasks && cachedTasks.length > 0) {
       // Apply local kanban state immediately for instant UI
@@ -287,7 +349,7 @@ function App() {
 
   const loadUserData = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/user/${userId}/data`);
+      const response = await fetch(buildApiUrl(`/api/user/${userId}/data`));
       if (response.ok) {
         const data = await response.json();
         setCustomTasks(data.customTasks || []);
@@ -336,7 +398,7 @@ function App() {
         },
       };
 
-      await fetch(`${API_BASE}/api/user/${userId}/data`, {
+      await fetch(buildApiUrl(`/api/user/${userId}/data`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -355,7 +417,7 @@ function App() {
         const localKanbanState = getLocalKanbanState();
 
         try {
-          const userDataResponse = await fetch(`${API_BASE}/api/user/${userId}/data`);
+          const userDataResponse = await fetch(buildApiUrl(`/api/user/${userId}/data`));
           if (userDataResponse.ok) {
             const userData = await userDataResponse.json();
             const backendKanbanState = userData.kanbanState || {};
@@ -414,7 +476,7 @@ function App() {
         // Restore kanban state from backend
         let kanbanState: Record<string, KanbanStage> = {};
         try {
-          const userDataResponse = await fetch(`${API_BASE}/api/user/${userId}/data`);
+          const userDataResponse = await fetch(buildApiUrl(`/api/user/${userId}/data`));
           if (userDataResponse.ok) {
             const userData = await userDataResponse.json();
             kanbanState = userData.kanbanState || {};
@@ -465,7 +527,7 @@ function App() {
 
   const fetchCampusEvents = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/campus-events?limit=4`);
+      const response = await fetch(buildApiUrl(`/api/campus-events?limit=4`));
       if (!response.ok) {
         throw new Error(`Campus events API error: ${response.status}`);
       }
@@ -550,11 +612,19 @@ function App() {
       ...taskData,
       id: `custom-${Date.now()}-${Math.random().toString(36).substring(7)}`,
     };
-    setCustomTasks((prev) => [...prev, newTask]);
+    setCustomTasks((prev) => {
+      const updated = [...prev, newTask];
+      setCachedCustomTasks(updated);
+      return updated;
+    });
   }, []);
 
   const handleDeleteTask = useCallback((taskId: string | number) => {
-    setCustomTasks((prev) => prev.filter((task) => task.id !== taskId));
+    setCustomTasks((prev) => {
+      const updated = prev.filter((task) => task.id !== taskId);
+      setCachedCustomTasks(updated);
+      return updated;
+    });
   }, []);
 
   const handleAddNote = useCallback(() => {
@@ -563,13 +633,21 @@ function App() {
         id: `note-${Date.now()}-${Math.random().toString(36).substring(7)}`,
         text: newNoteText.trim(),
       };
-      setFocusNotes((prev) => [...prev, newNote]);
+      setFocusNotes((prev) => {
+        const updated = [...prev, newNote];
+        setCachedFocusNotes(updated);
+        return updated;
+      });
       setNewNoteText('');
     }
   }, [newNoteText]);
 
   const handleDeleteNote = useCallback((noteId: string) => {
-    setFocusNotes((prev) => prev.filter((note) => note.id !== noteId));
+    setFocusNotes((prev) => {
+      const updated = prev.filter((note) => note.id !== noteId);
+      setCachedFocusNotes(updated);
+      return updated;
+    });
   }, []);
 
   const shuffleSelfCareTips = useCallback(() => {
@@ -1075,8 +1153,19 @@ function App() {
             <article className="card">
               <header className="section-header compact">
                 <div>
-                  <p>quick notes</p>
                   <h3>jot it down</h3>
+                </div>
+                <div className="color-picker">
+                  {noteCardColors.map((item) => (
+                    <button
+                      key={item.name}
+                      onClick={() => setNoteCardColor(item.color)}
+                      className={`color-dot ${noteCardColor === item.color ? 'active' : ''}`}
+                      style={{ backgroundColor: item.color }}
+                      aria-label={`${item.name} color`}
+                      title={item.name}
+                    />
+                  ))}
                 </div>
               </header>
               <div className="focus-notes">
@@ -1097,20 +1186,28 @@ function App() {
                     Add
                   </button>
                 </div>
-                <ul className="focus-notes__list">
-                  {focusNotes.length === 0 ? (
-                    <li className="focus-notes__empty">No notes yet. Start by adding one above!</li>
-                  ) : (
-                    focusNotes.map((note) => (
-                      <li key={note.id} className="focus-note">
-                        <span>{note.text}</span>
-                        <button onClick={() => handleDeleteNote(note.id)} className="note-delete" aria-label="Delete note">
+                {focusNotes.length === 0 ? (
+                  <div className="focus-notes__empty">No notes yet. Pick a color and start jotting things down!</div>
+                ) : (
+                  <ul className="focus-notes__list post-it-grid">
+                    {focusNotes.map((note) => (
+                      <li
+                        key={note.id}
+                        className="post-it-note"
+                        style={{ backgroundColor: noteCardColor }}
+                      >
+                        <button
+                          onClick={() => handleDeleteNote(note.id)}
+                          className="note-delete note-delete--floating"
+                          aria-label="Delete note"
+                        >
                           ×
                         </button>
+                        <span>{note.text}</span>
                       </li>
-                    ))
-                  )}
-                </ul>
+                    ))}
+                  </ul>
+                )}
               </div>
             </article>
 
@@ -1120,37 +1217,20 @@ function App() {
                   <p>self care</p>
                   <h3>take a break</h3>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <div className="color-picker">
-                    {postItColors.map((item) => (
-                      <button
-                        key={item.name}
-                        onClick={() => setPostItColor(item.color)}
-                        className={`color-dot ${postItColor === item.color ? 'active' : ''}`}
-                        style={{ backgroundColor: item.color }}
-                        aria-label={`${item.name} color`}
-                        title={item.name}
-                      />
-                    ))}
-                  </div>
-                  <button
-                    onClick={shuffleSelfCareTips}
-                    className="shuffle-btn"
-                    aria-label="Shuffle tips"
-                    title="Get new tips"
-                  >
-                    ↻
-                  </button>
-                </div>
+                <button
+                  onClick={shuffleSelfCareTips}
+                  className="shuffle-btn"
+                  aria-label="Shuffle tips"
+                  title="Get new tips"
+                >
+                  ↻
+                </button>
               </header>
-              <div className="post-it-grid">
+              <div className="self-care-list">
                 {selfCareTips.map((tip, index) => (
-                  <div
-                    key={`${tip}-${index}`}
-                    className="post-it-note"
-                    style={{ backgroundColor: postItColor }}
-                  >
-                    {tip}
+                  <div key={`${tip}-${index}`} className="self-care-tip">
+                    <div className="self-care-tip__index">{index + 1}</div>
+                    <p>{tip}</p>
                   </div>
                 ))}
               </div>
