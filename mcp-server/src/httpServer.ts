@@ -13,6 +13,9 @@ import fetch from "node-fetch";
 const PORT = Number(process.env.PORT || 3001);
 const ALLOWED_ORIGIN = process.env.CORS_ORIGIN || "*";
 const DATA_DIR = join(process.cwd(), "data");
+const USERS_DIR = join(DATA_DIR, "users");
+const ACCESS_CODES = (process.env.ACCESS_CODES || "CMU2025,SCOTTY,TARTAN").split(",");
+const ADMIN_WEBHOOK = process.env.ADMIN_WEBHOOK_URL || "";
 
 type MaybeIcalText = string | { val?: unknown } | null | undefined;
 
@@ -23,8 +26,9 @@ function getIcalTextValue(value: MaybeIcalText, fallback = ""): string {
   return typeof val === "string" ? val : fallback;
 }
 
-// Ensure data directory exists
+// Ensure data directories exist
 await fs.mkdir(DATA_DIR, { recursive: true });
+await fs.mkdir(USERS_DIR, { recursive: true });
 
 function setCorsHeaders(res: ServerResponse): void {
   res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
@@ -99,6 +103,186 @@ async function loadUserData(userId: string): Promise<any> {
  */
 async function saveUserData(userId: string, data: any): Promise<void> {
   await fs.writeFile(getUserDataPath(userId), JSON.stringify(data, null, 2), 'utf-8');
+}
+
+/**
+ * Get user profile path
+ */
+function getUserProfilePath(userId: string): string {
+  return join(USERS_DIR, `${userId}.json`);
+}
+
+/**
+ * Load user profile
+ */
+async function loadUserProfile(userId: string): Promise<any | null> {
+  try {
+    const data = await fs.readFile(getUserProfilePath(userId), 'utf-8');
+    return JSON.parse(data);
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Save user profile
+ */
+async function saveUserProfile(userId: string, profile: any): Promise<void> {
+  await fs.writeFile(getUserProfilePath(userId), JSON.stringify(profile, null, 2), 'utf-8');
+}
+
+/**
+ * Find user by access code
+ */
+async function findUserByAccessCode(accessCode: string): Promise<any | null> {
+  try {
+    const files = await fs.readdir(USERS_DIR);
+    for (const file of files) {
+      if (file.endsWith('.json')) {
+        const data = await fs.readFile(join(USERS_DIR, file), 'utf-8');
+        const profile = JSON.parse(data);
+        if (profile.accessCode === accessCode) {
+          return profile;
+        }
+      }
+    }
+    return null;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Send admin notification
+ */
+async function sendAdminNotification(user: any, action: string): Promise<void> {
+  if (!ADMIN_WEBHOOK) return;
+
+  try {
+    const message = {
+      text: `🔔 New User ${action}`,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*${action === 'registered' ? '✨ New User Registration' : '🔄 User Login'}*`
+          }
+        },
+        {
+          type: "section",
+          fields: [
+            { type: "mrkdwn", text: `*Name:*\n${user.name}` },
+            { type: "mrkdwn", text: `*Email:*\n${user.email}` },
+            { type: "mrkdwn", text: `*Device:*\n${user.deviceInfo.deviceType}` },
+            { type: "mrkdwn", text: `*OS:*\n${user.deviceInfo.os}` },
+            { type: "mrkdwn", text: `*Browser:*\n${user.deviceInfo.browser}` },
+            { type: "mrkdwn", text: `*Time:*\n${new Date().toLocaleString()}` }
+          ]
+        }
+      ]
+    };
+
+    await fetch(ADMIN_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message)
+    });
+  } catch (error) {
+    logger.error('Failed to send admin notification', error);
+  }
+}
+
+/**
+ * Handle POST /api/auth/validate-code
+ */
+async function handleValidateCode(res: ServerResponse, req: IncomingMessage): Promise<void> {
+  try {
+    const data = await readRequestBody(req);
+    const { accessCode } = data;
+
+    if (!accessCode || !ACCESS_CODES.includes(accessCode)) {
+      sendJson(res, 401, { valid: false, error: 'Invalid access code' });
+      return;
+    }
+
+    // Check if user already exists with this code
+    const existingUser = await findUserByAccessCode(accessCode);
+
+    if (existingUser) {
+      // Update last access
+      existingUser.lastAccess = new Date().toISOString();
+      await saveUserProfile(existingUser.id, existingUser);
+      await sendAdminNotification(existingUser, 'login');
+      sendJson(res, 200, { valid: true, existingUser: true, user: existingUser });
+    } else {
+      sendJson(res, 200, { valid: true, existingUser: false });
+    }
+  } catch (error) {
+    logger.error('Failed to validate access code', error);
+    sendJson(res, 500, { error: 'Internal server error' });
+  }
+}
+
+/**
+ * Handle POST /api/auth/register
+ */
+async function handleRegister(res: ServerResponse, req: IncomingMessage): Promise<void> {
+  try {
+    const user = await readRequestBody(req);
+
+    // Save user profile
+    await saveUserProfile(user.id, user);
+
+    // Send admin notification
+    await sendAdminNotification(user, 'registered');
+
+    logger.info(`New user registered: ${user.name} (${user.email})`);
+    sendJson(res, 200, { success: true, user });
+  } catch (error) {
+    logger.error('Failed to register user', error);
+    sendJson(res, 500, { error: 'Internal server error' });
+  }
+}
+
+/**
+ * Handle GET /api/auth/profile/:userId
+ */
+async function handleGetProfile(res: ServerResponse, userId: string): Promise<void> {
+  try {
+    const profile = await loadUserProfile(userId);
+    if (profile) {
+      sendJson(res, 200, profile);
+    } else {
+      sendJson(res, 404, { error: 'Profile not found' });
+    }
+  } catch (error) {
+    logger.error(`Failed to load profile for ${userId}`, error);
+    sendJson(res, 500, { error: 'Internal server error' });
+  }
+}
+
+/**
+ * Handle PUT /api/auth/profile/:userId
+ */
+async function handleUpdateProfile(res: ServerResponse, userId: string, req: IncomingMessage): Promise<void> {
+  try {
+    const updates = await readRequestBody(req);
+    const profile = await loadUserProfile(userId);
+
+    if (!profile) {
+      sendJson(res, 404, { error: 'Profile not found' });
+      return;
+    }
+
+    const updatedProfile = { ...profile, ...updates, lastAccess: new Date().toISOString() };
+    await saveUserProfile(userId, updatedProfile);
+
+    sendJson(res, 200, { success: true, user: updatedProfile });
+  } catch (error) {
+    logger.error(`Failed to update profile for ${userId}`, error);
+    sendJson(res, 500, { error: 'Internal server error' });
+  }
 }
 
 /**
@@ -279,6 +463,32 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && parsedUrl.pathname === "/api/campus-events") {
     await handleCampusEventsRequest(res, parsedUrl);
     return;
+  }
+
+  // Auth endpoints
+  if (req.method === "POST" && parsedUrl.pathname === "/api/auth/validate-code") {
+    await handleValidateCode(res, req);
+    return;
+  }
+
+  if (req.method === "POST" && parsedUrl.pathname === "/api/auth/register") {
+    await handleRegister(res, req);
+    return;
+  }
+
+  const profileMatch = parsedUrl.pathname.match(/^\/api\/auth\/profile\/([^/]+)$/);
+  if (profileMatch) {
+    const userId = profileMatch[1];
+
+    if (req.method === "GET") {
+      await handleGetProfile(res, userId);
+      return;
+    }
+
+    if (req.method === "PUT") {
+      await handleUpdateProfile(res, userId, req);
+      return;
+    }
   }
 
   // User data endpoints

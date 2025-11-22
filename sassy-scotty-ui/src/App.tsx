@@ -3,12 +3,16 @@ import Assignments from './components/Assignments';
 import CreateTaskModal from './components/CreateTaskModal';
 import MoodSelector from './components/MoodSelector';
 import PreferencesModal from './components/PreferencesModal';
+import LoginPage from './components/LoginPage';
+import ProfileModal from './components/ProfileModal';
 import { mockAssignments, mockScheduleEvents, type ScheduleEvent } from './data/mockData';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KanbanStage, Task } from './types/task';
+import type { UserProfile } from './types/user';
 import { getCurrentSprint, getSprint, isDateInSprint, type Sprint } from './utils/sprintUtils';
 import { applyTheme, getStoredTheme, type Theme } from './utils/themes';
 import { generateVibeCoach } from './utils/vibeCoach';
+import { getDeviceInfo } from './utils/deviceDetection';
 
 interface FocusNote {
   id: string;
@@ -247,6 +251,13 @@ function getRandomEmoji(): string {
 }
 
 function App() {
+  // Auth state
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
+    const stored = localStorage.getItem('user_profile');
+    return stored ? JSON.parse(stored) : null;
+  });
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
   const [activeFilter, setActiveFilter] = useState(filters[0]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [customTasks, setCustomTasks] = useState<Task[]>([]);
@@ -269,7 +280,11 @@ function App() {
   const [noteCardColor, setNoteCardColor] = useState<string>('#fef3c7'); // Default sticky note color
   const [brandEmoji] = useState<string>(() => getRandomEmoji()); // Random emoji on mount
   const apiUrlRef = useRef(INITIAL_API_URL);
-  const userId = useRef(getUserId()).current;
+
+  // Use userId from profile if logged in, otherwise generate one
+  const userId = useMemo(() => {
+    return userProfile?.id || getUserId();
+  }, [userProfile?.id]);
 
   const noteCardColors = [
     { name: 'yellow', color: '#fef3c7' },
@@ -667,6 +682,56 @@ function App() {
     await fetchCampusEvents(); // Also refresh campus events
   }, [fetchAssignments, fetchCampusEvents]);
 
+  // Auth handlers
+  const handleLogin = useCallback((profile: UserProfile) => {
+    setUserProfile(profile);
+    localStorage.setItem('user_profile', JSON.stringify(profile));
+    // Force reload to initialize data with new user
+    window.location.reload();
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    setUserProfile(null);
+    localStorage.removeItem('user_profile');
+    // Clear other cached data
+    localStorage.removeItem(TASKS_CACHE_KEY);
+    localStorage.removeItem(TASKS_TIMESTAMP_KEY);
+    localStorage.removeItem(KANBAN_STATE_KEY);
+    localStorage.removeItem(FOCUS_NOTES_KEY);
+    localStorage.removeItem(CUSTOM_TASKS_KEY);
+    // Force reload to show login page
+    window.location.reload();
+  }, []);
+
+  const handleUpdateProfile = useCallback(async (updates: Partial<UserProfile>) => {
+    if (!userProfile) return;
+
+    const updatedProfile = { ...userProfile, ...updates };
+    setUserProfile(updatedProfile);
+    localStorage.setItem('user_profile', JSON.stringify(updatedProfile));
+
+    // Update on backend
+    try {
+      await fetch(`/api/auth/profile/${userProfile.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+    } catch (error) {
+      console.error('Failed to update profile on backend:', error);
+    }
+  }, [userProfile]);
+
+  // Apply theme on mount and when theme changes
+  useEffect(() => {
+    applyTheme(currentTheme);
+  }, [currentTheme]);
+
+  // Show login page if not authenticated
+  if (!userProfile) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   // Initialize selected courses when tasks first load
   useEffect(() => {
     if (tasks.length > 0 && selectedCourses.length === 0) {
@@ -758,6 +823,13 @@ function App() {
           </div>
           <button className="primary-btn" disabled={loading} onClick={handleRefresh}>
             {loading ? 'syncing…' : '🔄 sync canvas'}
+          </button>
+          <button
+            className="profile-btn"
+            onClick={() => setIsProfileModalOpen(true)}
+            title="Profile"
+          >
+            {userProfile.name.charAt(0).toUpperCase()}
           </button>
         </div>
       </header>
@@ -1258,6 +1330,13 @@ function App() {
         selectedCourses={selectedCourses}
         onSavePreferences={setSelectedCourses}
       />
+      <ProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        user={userProfile}
+        onUpdateProfile={handleUpdateProfile}
+        onLogout={handleLogout}
+      />
 
       <footer className="app-footer">
         <div className="footer-content">
@@ -1275,10 +1354,10 @@ function App() {
             </a>
             <span className="footer-separator">•</span>
             <a
-              href="mailto:nvora@andrew.cmu.edu"
+              href="mailto:naitikvora@cmu.edu"
               className="footer-link"
             >
-              nvora@andrew.cmu.edu
+              naitikvora@cmu.edu
             </a>
             <span className="footer-separator">•</span>
             <span className="footer-credit">by naitik vora</span>
