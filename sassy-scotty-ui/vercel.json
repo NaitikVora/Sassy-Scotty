@@ -4,12 +4,5 @@
       "source": "/api/:path*",
       "destination": "https://sassy-scotty.onrender.com/api/:path*"
     }
-  ],
-  "routes": [
-    {
-      "src": "/[^.]+",
-      "dest": "/",
-      "status": 200
-    }
   ]
 }
