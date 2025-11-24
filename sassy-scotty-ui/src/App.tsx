@@ -63,7 +63,6 @@ const { url: INITIAL_API_URL, note: INITIAL_API_NOTE } = sanitizeApiUrl(rawCanva
 
 const apiBaseEnv = (import.meta.env.VITE_HTTP_GATEWAY_BASE as string | undefined)?.trim() ?? '';
 const API_BASE = apiBaseEnv.replace(/\/$/, '');
-const CANVAS_PROXY_ENABLED = typeof __CANVAS_PROXY_ENABLED__ === 'undefined' ? true : __CANVAS_PROXY_ENABLED__;
 
 const buildApiUrl = (path: string): string => {
   if (!API_BASE) return path;
