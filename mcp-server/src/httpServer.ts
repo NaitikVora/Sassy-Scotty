@@ -510,8 +510,8 @@ const server = http.createServer(async (req, res) => {
   sendJson(res, 404, { error: "Not found" });
 });
 
-server.listen(PORT, () => {
-  logger.info(`HTTP Canvas API listening on port ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  logger.info(`HTTP Canvas API listening on 0.0.0.0:${PORT}`);
 });
 
 server.on("error", (error) => {
