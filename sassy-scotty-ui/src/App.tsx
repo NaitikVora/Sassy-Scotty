@@ -12,7 +12,6 @@ import type { UserProfile } from './types/user';
 import { getCurrentSprint, getSprint, isDateInSprint, type Sprint } from './utils/sprintUtils';
 import { applyTheme, getStoredTheme, type Theme } from './utils/themes';
 import { generateVibeCoach } from './utils/vibeCoach';
-import { getDeviceInfo } from './utils/deviceDetection';
 
 interface FocusNote {
   id: string;
@@ -65,7 +64,6 @@ const { url: INITIAL_API_URL, note: INITIAL_API_NOTE } = sanitizeApiUrl(rawCanva
 const apiBaseEnv = (import.meta.env.VITE_HTTP_GATEWAY_BASE as string | undefined)?.trim() ?? '';
 const API_BASE = apiBaseEnv.replace(/\/$/, '');
 const CANVAS_PROXY_ENABLED = typeof __CANVAS_PROXY_ENABLED__ === 'undefined' ? true : __CANVAS_PROXY_ENABLED__;
-const IS_CANVAS_GATEWAY_OFFLINE = !API_BASE && !CANVAS_PROXY_ENABLED;
 
 const buildApiUrl = (path: string): string => {
   if (!API_BASE) return path;
